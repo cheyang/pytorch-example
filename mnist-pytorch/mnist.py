@@ -106,6 +106,8 @@ def main():
         parser.add_argument('--backend', type=str, help='Distributed backend',
                             choices=[dist.Backend.GLOO, dist.Backend.NCCL, dist.Backend.MPI],
                             default=dist.Backend.GLOO)
+        parser.add_argument('--local_rank', type=int, default=0,
+                    help='Local rank. Necessary for using the torch.distributed.launch utility.')
     args = parser.parse_args()
     print("args: {}".format(args))
     use_cuda = not args.no_cuda and torch.cuda.is_available()
@@ -120,7 +122,7 @@ def main():
 
     if should_distribute():
         print('Using distributed PyTorch with {} backend'.format(args.backend))
-        dist.init_process_group(backend=args.backend)
+        dist.init_process_group(backend=args.backend, rank=args.local_rank)
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
     train_loader = torch.utils.data.DataLoader(

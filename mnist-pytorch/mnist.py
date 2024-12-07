@@ -118,7 +118,16 @@ def main():
 
     torch.manual_seed(args.seed)
 
-    device = torch.device("cuda" if use_cuda else "cpu")
+    #device = torch.device("cuda" if use_cuda else "cpu")
+    use_cuda = torch.cuda.is_available()
+    print(f"CUDA Available: {use_cuda}")
+
+    
+    if use_cuda:
+        torch.cuda.set_device(args.local_rank)
+        device = torch.device(f"cuda:{args.local_rank}")
+    else:
+        device = torch.device("cpu")
 
     if should_distribute():
         print('Using distributed PyTorch with {} backend'.format(args.backend))

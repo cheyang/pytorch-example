@@ -119,9 +119,9 @@ def main():
     if should_distribute():
         print('Using distributed PyTorch with {} backend'.format(args.backend))
         world_size = int(os.environ.get('WORLD_SIZE', 1))
-		node_rank = int(os.environ.get('RANK', 99))
-		global_rank = node_rank + args.local_rank * args.nproc-per-node
-		print("WORLD_SIZE: {}, CURRENT_RANK: {}, LOCAL_RANK: {}".format(world_size, global_rank, local_rank))
+        node_rank = int(os.environ.get('RANK', 99))
+        global_rank = node_rank + args.local_rank * args.nproc-per-node
+        print("WORLD_SIZE: {}, CURRENT_RANK: {}, LOCAL_RANK: {}".format(world_size, global_rank, local_rank))
         dist.init_process_group(backend=args.backend, rank=global_rank, world_size=world_size)
 
 

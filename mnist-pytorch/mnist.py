@@ -9,10 +9,11 @@ import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
-from torch.utils.tensorboard import SummaryWriter
+#from torch.utils.tensorboard import SummaryWriter
 
 world_size = int(os.environ.get('WORLD_SIZE', 1))
 print("WORLD_SIZE: {}".format(world_size))
+global_rank = 0
 
 class Net(nn.Module):
     def __init__(self):
@@ -32,7 +33,7 @@ class Net(nn.Module):
         x = self.fc2(x)
         return F.log_softmax(x, dim=1)
 
-def train(args, model, device, train_loader, optimizer, epoch, writer):
+def train(args, model, device, train_loader, optimizer, epoch):
     model.train()
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
@@ -46,9 +47,9 @@ def train(args, model, device, train_loader, optimizer, epoch, writer):
                 epoch, batch_idx * len(data), len(train_loader.dataset),
                 100. * batch_idx / len(train_loader), loss.item()))
             niter = epoch * len(train_loader) + batch_idx
-            writer.add_scalar('loss', loss.item(), niter)
+            #writer.add_scalar('loss', loss.item(), niter)
 
-def test(args, model, device, test_loader, writer, epoch):
+def test(args, model, device, test_loader, epoch):
     model.eval()
     test_loss = 0
     correct = 0
@@ -62,7 +63,7 @@ def test(args, model, device, test_loader, writer, epoch):
 
     test_loss /= len(test_loader.dataset)
     print('\naccuracy={:.4f}\n'.format(float(correct) / len(test_loader.dataset)))
-    writer.add_scalar('accuracy', float(correct) / len(test_loader.dataset), epoch)
+    #writer.add_scalar('accuracy', float(correct) / len(test_loader.dataset), epoch)
 
 
 def should_distribute():
@@ -106,15 +107,13 @@ def main():
                             default=dist.Backend.GLOO)
         parser.add_argument('--nproc_per_node', type=int, default=1,
                     help='Number of processes per node. Necessary for using the torch.distributed.launch utility.')
-        parser.add_argument('--local_rank', type=int, default=0,
-                    help='Local rank. Necessary for using the torch.distributed.launch utility.')
     args = parser.parse_args()
     print("args: {}".format(args))
-    node_rank = int(os.environ.get('RANK', 99))
-    global_rank = node_rank + args.local_rank * args.nproc_per_node
+    print("local_rank: {}".format(os.environ["LOCAL_RANK"]))
+    local_rank = int(os.environ["LOCAL_RANK"])
     
 
-    writer = SummaryWriter(args.dir)
+   # writer = SummaryWriter(args.dir)
 
     torch.manual_seed(args.seed)
 
@@ -122,8 +121,17 @@ def main():
 
     if should_distribute():
         print('Using distributed PyTorch with {} backend'.format(args.backend))
-        print("WORLD_SIZE: {}, CURRENT_RANK: {}, LOCAL_RANK: {}".format(world_size, global_rank, args.local_rank))
-        dist.init_process_group(backend=args.backend, rank=global_rank, world_size=world_size)
+        dist.init_process_group(backend=args.backend)
+        env_dict = {
+           key: os.environ[key]
+           for key in ("MASTER_ADDR", "MASTER_PORT", "RANK", "WORLD_SIZE")
+        }
+        print(f"[{os.getpid()}] Initializing process group with: {env_dict}")
+        global_rank = dist.get_rank()
+        print(
+           f"[{os.getpid()}]: world_size = {dist.get_world_size()}, "
+           + f"rank = {dist.get_rank()}, backend={dist.get_backend()}"
+        )
 
 
     use_cuda = not args.no_cuda and torch.cuda.is_available()
@@ -131,11 +139,11 @@ def main():
         print('Using CUDA')
         total_gpus = torch.cuda.device_count()
         n = total_gpus // args.nproc_per_node
-        assigned_gpus = list(range(args.local_rank * n, (args.local_rank + 1) * n))
+        assigned_gpus = list(range(local_rank * n, (local_rank + 1) * n))
         device = torch.device(f"cuda:{assigned_gpus[0]}")
 
         print(
-            f"[{os.getpid()}] rank = {global_rank}, "
+            f"[{os.getpid()}] local_rank = {local_rank}, global_rank = {global_rank}, "
             + f"world_size = {world_size}, n = {n}, device_ids = {assigned_gpus}"
         )
     else:
@@ -166,8 +174,8 @@ def main():
     optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
 
     for epoch in range(1, args.epochs + 1):
-        train(args, model, device, train_loader, optimizer, epoch, writer)
-        test(args, model, device, test_loader, writer, epoch)
+        train(args, model, device, train_loader, optimizer, epoch)
+        test(args, model, device, test_loader, epoch)
 
     if (args.save_model):
         torch.save(model.state_dict(),"mnist_cnn.pt")

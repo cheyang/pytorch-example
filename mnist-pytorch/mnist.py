@@ -11,10 +11,6 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.tensorboard import SummaryWriter
 
-WORLD_SIZE = int(os.environ.get('WORLD_SIZE', 1))
-CURRENT_RANK = int(os.environ.get('RANK', 99))
-
-print("WORLD_SIZE: {}, CURRENT_RANK: {}".format(WORLD_SIZE, CURRENT_RANK))
 
 class Net(nn.Module):
     def __init__(self):
@@ -106,32 +102,43 @@ def main():
         parser.add_argument('--backend', type=str, help='Distributed backend',
                             choices=[dist.Backend.GLOO, dist.Backend.NCCL, dist.Backend.MPI],
                             default=dist.Backend.GLOO)
+        parser.add_argument('--nproc-per-node', type=int, default=1,
+                    help='Number of processes per node. Necessary for using the torch.distributed.launch utility.')
         parser.add_argument('--local_rank', type=int, default=0,
                     help='Local rank. Necessary for using the torch.distributed.launch utility.')
     args = parser.parse_args()
     print("args: {}".format(args))
-    use_cuda = not args.no_cuda and torch.cuda.is_available()
-    if use_cuda:
-        print('Using CUDA')
+    
 
     writer = SummaryWriter(args.dir)
 
     torch.manual_seed(args.seed)
 
-    #device = torch.device("cuda" if use_cuda else "cpu")
-    use_cuda = torch.cuda.is_available()
-    print(f"CUDA Available: {use_cuda}")
-
-    
-    if use_cuda:
-        torch.cuda.set_device(args.local_rank)
-        device = torch.device(f"cuda:{args.local_rank}")
-    else:
-        device = torch.device("cpu")
+    device = torch.device("cuda" if use_cuda else "cpu")
 
     if should_distribute():
         print('Using distributed PyTorch with {} backend'.format(args.backend))
-        dist.init_process_group(backend=args.backend, rank=args.local_rank)
+        world_size = int(os.environ.get('WORLD_SIZE', 1))
+		node_rank = int(os.environ.get('RANK', 99))
+		global_rank = node_rank + args.local_rank * args.nproc-per-node
+		print("WORLD_SIZE: {}, CURRENT_RANK: {}, LOCAL_RANK: {}".format(world_size, global_rank, local_rank))
+        dist.init_process_group(backend=args.backend, rank=global_rank, world_size=world_size)
+
+
+    use_cuda = not args.no_cuda and torch.cuda.is_available()
+    if use_cuda:
+        print('Using CUDA')
+        total_gpus = torch.cuda.device_count()
+        n = total_gpus // args.nproc-per-node
+        assigned_gpus = list(range(local_rank * n, (local_rank + 1) * n))
+        device = torch.device(f"cuda:{assigned_gpus[0]}")
+
+    	print(
+        	f"[{os.getpid()}] rank = {global_rank}, "
+        	+ f"world_size = {world_size}, n = {n}, device_ids = {assigned_gpus}"
+    	)
+    else:
+        device = torch.device("cpu")
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
     train_loader = torch.utils.data.DataLoader(

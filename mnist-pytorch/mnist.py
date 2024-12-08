@@ -133,10 +133,10 @@ def main():
         assigned_gpus = list(range(local_rank * n, (local_rank + 1) * n))
         device = torch.device(f"cuda:{assigned_gpus[0]}")
 
-    	print(
-        	f"[{os.getpid()}] rank = {global_rank}, "
-        	+ f"world_size = {world_size}, n = {n}, device_ids = {assigned_gpus}"
-    	)
+        print(
+            f"[{os.getpid()}] rank = {global_rank}, "
+            + f"world_size = {world_size}, n = {n}, device_ids = {assigned_gpus}"
+        )
     else:
         device = torch.device("cpu")
 
